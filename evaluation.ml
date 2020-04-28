@@ -113,10 +113,55 @@ let eval_t (exp : expr) (_env : Env.env) : Env.value =
   (* coerce the expr, unchanged, into a value *)
   Env.Val exp ;;
 
+(* Auxiliary evaluation functions *)
+
+let eval_unop (u : unop) (Env.Val v : Env.value) : Env.value =
+  match u with
+  | Negate ->
+    match v with
+    | Num x -> Env.Val (Num (~-x))
+    | _ -> raise (EvalError "Type error, unable to negate non-Num") ;;
+
+let eval_binop (b : binop)
+               (Env.Val e1 : Env.value)
+               (Env.Val e2 : Env.value)
+             : Env.value = 
+  let get_num (e : expr) : int =
+    match e with
+    | Num x -> x
+    | _ -> raise (EvalError "Type error, value of type Num was expected") in
+  match b with
+  | Plus -> Env.Val (Num ((get_num e1) + (get_num e2)))
+  | Minus -> Env.Val (Num ((get_num e1) - (get_num e2)))
+  | Times -> Env.Val (Num ((get_num e1) * (get_num e2)))
+  | Equals -> Env.Val (Bool ((get_num e1) = (get_num e2)))
+  | LessThan -> Env.Val (Bool ((get_num e1) < (get_num e2))) ;;
+
+let get_expr (Env.Val v : Env.value) : Expr.expr = v ;;
+
 (* The SUBSTITUTION MODEL evaluator -- to be completed *)
    
-let eval_s (_exp : expr) (_env : Env.env) : Env.value =
-  failwith "eval_s not implemented" ;;
+let eval_s (exp : expr) (_env : Env.env) : Env.value =
+  let rec eval_s' (exp : expr) : Env.value =
+    match exp with
+    | Var v -> raise (EvalError ("Unbound value " ^ v))
+    | Num _ | Bool _ | Unassigned -> Env.Val exp
+    | Unop (u, e) -> eval_unop u (eval_s' e)
+    | Binop (b, e1, e2) -> eval_binop b (eval_s' e1) (eval_s' e2)
+    | Conditional (e1, e2, e3) -> 
+      if eval_s' e1 = Env.Val (Bool true) then eval_s' e2 else eval_s' e3
+    | Fun (x, e) -> Env.Val (Fun (x, e))
+    | Let (x, e1, e2) -> eval_s' (subst x (get_expr (eval_s' e1)) e2)
+    | Letrec (x, e1, e2) ->
+      eval_s' (subst x (subst x (Letrec (x, e1, Var x)) e1) e2) (* STACK OVERFLOW *)
+    | Raise -> raise EvalException
+    | App (e1, e2) ->
+      match eval_s' e1 with 
+      | Env.Val Fun (x, e) -> eval_s' (subst x (get_expr (eval_s' e2)) e)
+      | _ ->
+        raise (EvalError "Function expected, unable to perform application") in
+  eval_s' exp
+;; 
      
 (* The DYNAMICALLY-SCOPED ENVIRONMENT MODEL evaluator -- to be
    completed *)
@@ -146,4 +191,4 @@ let eval_e _ =
    above, not the evaluate function, so it doesn't matter how it's set
    when you submit your solution.) *)
    
-let evaluate = eval_t ;;
+let evaluate = eval_s ;;

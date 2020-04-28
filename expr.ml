@@ -63,15 +63,31 @@ let vars_of_list : string list -> varidset =
 (* free_vars : expr -> varidset
    Return a set of the variable names that are free in expression
    exp *)
-let free_vars (exp : expr) : varidset =
-  failwith "free_vars not implemented" ;;
+let rec free_vars (exp : expr) : varidset =
+  match exp with
+  | Var x -> SS.singleton x
+  | Num _ | Bool _ | Raise | Unassigned -> SS.empty
+  | Unop (_, e) -> free_vars e
+  | Binop (_, e1, e2) -> SS.union (free_vars e1) (free_vars e2)
+  | Conditional (e1, e2, e3) ->
+    SS. union (SS.union (free_vars e1) (free_vars e2)) (free_vars e3)
+  | Fun (x, e) -> SS.remove x (free_vars exp)
+  | Let (x, e1, e2) -> SS.union (free_vars e1) (SS.remove x (free_vars e2))
+  | Letrec (x, e1, e2) ->
+    SS.union (SS.remove x (free_vars e1)) (SS.remove x (free_vars e2))
+  | App (e1, e2) -> SS.union (free_vars e1) (free_vars e2)
+;;
   
 (* new_varname : unit -> varid
    Return a fresh variable, constructed with a running counter a la
    gensym. Assumes no variable names use the prefix "var". (Otherwise,
    they might accidentally be the same as a generated variable name.) *)
-let new_varname () : varid =
-  failwith "new_varname not implemented" ;;
+let new_varname : unit -> varid =
+  let ctr = ref 0 in
+  fun () ->
+    let name = "x" ^ string_of_int !ctr in
+    incr ctr;
+    name ;;
 
 (*......................................................................
   Substitution 
@@ -83,20 +99,105 @@ let new_varname () : varid =
 
 (* subst : varid -> expr -> expr -> expr
    Substitute repl for free occurrences of var_name in exp *)
-let subst (var_name : varid) (repl : expr) (exp : expr) : expr =
-  failwith "subst not implemented" ;;
+let rec subst (var_name : varid) (repl : expr) (exp : expr) : expr =
+  let rec subst' (exp : expr) =
+    match exp with
+    | Var x -> if x = var_name then repl else exp
+    | Num _ | Bool _ | Raise | Unassigned -> exp
+    | Unop (u, e) -> Unop (u, subst' e)
+    | Binop (b, e1, e2) -> Binop (b, subst' e1, subst' e2)
+    | Conditional (e1, e2, e3) -> Conditional (subst' e1, subst' e2, subst' e3)
+    | Fun (x, e) ->
+      if x = var_name then exp
+      else 
+        if SS.mem x (free_vars repl) then
+          let x' = new_varname () in
+          Fun (x', subst' (subst x (Var x') e))
+        else Fun(x, subst' e)
+    | Let (x, e1, e2) ->
+      if x = var_name then Let (x, subst' e1, e2)
+      else
+        if SS.mem x (free_vars repl) then
+          let x' = new_varname () in
+          Let (x', subst' e1, subst' (subst x (Var x') e2))
+        else Let (x, subst' e1, subst' e2)
+    | Letrec (x, e1, e2) ->
+      if x = var_name then exp
+      else
+        if SS.mem x (free_vars repl) then
+          let x' = new_varname () in
+          Letrec (x', subst' (subst x (Var x') e1), subst' (subst x (Var x') e2))
+        else Letrec (x, subst' e1, subst' e2)
+    | App (e1, e2) -> App (subst' e1, subst' e2) in
+  subst' exp
+;;
 
 (*......................................................................
   String representations of expressions
  *)
    
+let string_of_unop (u : unop) : string =
+  match u with
+  | Negate -> "Negate" ;;
+
+let string_of_binop (b : binop) : string =
+  match b with
+  | Plus -> "Plus"
+  | Minus -> "Minus"
+  | Times -> "Times"
+  | Equals -> "Equals"
+  | LessThan -> "LessThan" ;;
     
 (* exp_to_concrete_string : expr -> string
    Returns a concrete syntax string representation of the expr *)
-let exp_to_concrete_string (exp : expr) : string =
-  failwith "exp_to_concrete_string not implemented" ;;
+let rec exp_to_concrete_string (exp : expr) : string =
+  match exp with
+  | Var x -> x
+  | Num x -> string_of_int x
+  | Bool x -> string_of_bool x
+  | Unop (u, e) -> string_of_unop u ^ exp_to_concrete_string e
+  | Binop (b, e1, e2) ->
+    "(" ^ exp_to_concrete_string e1 ^ " "
+    ^ string_of_binop b ^ " " ^ exp_to_concrete_string e2 ^ ")"
+  | Conditional (e1, e2, e3) ->
+    "if " ^ exp_to_concrete_string e1 ^ " then "
+    ^ exp_to_concrete_string e2 ^ " else " ^ exp_to_concrete_string e3
+  | Fun (x, e) -> "fun " ^ x ^  " -> " ^ exp_to_concrete_string e
+  | Let (x, e1, e2) ->
+    "let " ^ x ^ " = " ^ exp_to_concrete_string e1 ^ " in " ^
+    exp_to_concrete_string e2
+  | Letrec (x, e1, e2) ->
+    "let rec " ^ x ^ " = " ^ exp_to_concrete_string e1 ^ " in " ^
+    exp_to_concrete_string e2
+  | Raise -> "Raise"
+  | Unassigned -> "Unassigned"
+  | App (e1, e2) -> exp_to_concrete_string e1 ^ " " ^ exp_to_concrete_string e2
+;;
 
 (* exp_to_abstract_string : expr -> string
    Returns a string representation of the abstract syntax of the expr *)
-let exp_to_abstract_string (exp : expr) : string =
-  failwith "exp_to_abstract_string not implemented" ;;
+let rec exp_to_abstract_string (exp : expr) : string =
+  match exp with
+  | Var x -> "Var(" ^ x ^ ")"
+  | Num x -> "Num(" ^ string_of_int x ^ ")"
+  | Bool x -> "Bool(" ^ string_of_bool x ^ ")"
+  | Unop (u, e) -> 
+    "Unop(" ^ string_of_unop u ^ ", "  ^ exp_to_abstract_string e ^ ")"
+  | Binop (b, e1, e2) ->
+    "Binop(" ^ string_of_binop b ^ ", " ^ exp_to_abstract_string e1 ^ ", "
+    ^ exp_to_abstract_string e2 ^ ")"
+  | Conditional (e1, e2, e3) ->
+    "Conditional(" ^ exp_to_abstract_string e1 ^ ", " ^ exp_to_abstract_string e2
+    ^ ", " ^ exp_to_abstract_string e3 ^ ")"
+  | Fun (x, e) -> "Fun(" ^ x ^ ", " ^ exp_to_abstract_string e ^ ")"
+  | Let (x, e1, e2) ->
+    "Let(" ^ x ^ ", " ^ exp_to_abstract_string e1 ^ ", "
+    ^ exp_to_abstract_string e2 ^ ")"
+  | Letrec (x, e1, e2) ->
+    "Letrec(" ^ x ^ ", " ^ exp_to_abstract_string e1 ^ ", "
+    ^ exp_to_abstract_string e2 ^ ")" 
+  | Raise -> "Raise"
+  | Unassigned -> "Unassigned"
+  | App (e1, e2) ->
+    "App(" ^ exp_to_abstract_string e1 ^ ", " ^ exp_to_abstract_string e2 ^ ")"
+;;
