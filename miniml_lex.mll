@@ -37,9 +37,13 @@
                        ("->", DOT);
                        (";;", EOF);
                        ("~-", NEG);
+                       ("~-.", FNEG);
                        ("+", PLUS);
+                       ("+.", FPLUS);
                        ("-", MINUS);
+                       ("-.", FMINUS);
                        ("*", TIMES);
+                       ("*.", FTIMES);
                        ("(", OPEN);
                        (")", CLOSE)
                      ]
@@ -53,6 +57,10 @@ rule token = parse
   | digit+ as inum
         { let num = int_of_string inum in
           INT num
+        }
+  | digit+ '.' digit* as fnum
+        { let num = float_of_string fnum in
+          FLOAT num
         }
   | id as word
         { try

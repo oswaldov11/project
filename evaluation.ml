@@ -67,20 +67,32 @@ module Env : ENV =
 
     let empty () : env = [] ;;
 
-    let close (exp : expr) (env : env) : value =
-      failwith "close not implemented" ;;
+    let close (exp : expr) (env : env) : value = Closure (exp, env) ;;
 
     let lookup (env : env) (varname : varid) : value =
-      failwith "lookup not implemented" ;;
+      !(List.assoc varname env) ;;
 
     let extend (env : env) (varname : varid) (loc : value ref) : env =
-      failwith "extend not implemented" ;;
+      try 
+        let _search = lookup env varname in
+        List.map (fun (var, value) ->
+          if var = varname then (var, loc)
+          else (var, value)) env
+      with 
+        Not_found -> (varname, loc) :: env ;;
 
-    let value_to_string ?(printenvp : bool = true) (v : value) : string =
-      failwith "value_to_string not implemented" ;;
+    let rec value_to_string ?(printenvp : bool = true) (v : value) : string =
+      match v with
+      | Val exp -> exp_to_concrete_string exp
+      | Closure (exp, env) ->
+        if printenvp then env_to_string env ^ exp_to_concrete_string exp
+        else exp_to_concrete_string exp
 
-    let env_to_string (env : env) : string =
-      failwith "env_to_string not implemented" ;;
+    and env_to_string (env : env) : string =
+      match env with
+      | [] -> ""
+      | (varid, valref) :: tl ->
+        varid ^ " = " ^ value_to_string !valref ^ "\n" ^ env_to_string tl ;;
   end
 ;;
 
@@ -116,58 +128,82 @@ let eval_t (exp : expr) (_env : Env.env) : Env.value =
 (* Auxiliary evaluation functions *)
 
 let eval_unop (u : unop) (Env.Val v : Env.value) : Env.value =
-  match u with
-  | Negate ->
-    match v with
-    | Num x -> Env.Val (Num (~-x))
-    | _ -> raise (EvalError "Type error, unable to negate non-Num") ;;
+  match u, v with
+  | Negate, Num x -> Env.Val (Num (~-x))
+  | Fnegate, Float x -> Env.Val (Float (~-.x))
+  | _ -> raise (EvalError "Type error, unable to negate non-Num or non-Float") ;;
 
 let eval_binop (b : binop)
                (Env.Val e1 : Env.value)
                (Env.Val e2 : Env.value)
-             : Env.value = 
-  let get_num (e : expr) : int =
-    match e with
-    | Num x -> x
-    | _ -> raise (EvalError "Type error, value of type Num was expected") in
-  match b with
-  | Plus -> Env.Val (Num ((get_num e1) + (get_num e2)))
-  | Minus -> Env.Val (Num ((get_num e1) - (get_num e2)))
-  | Times -> Env.Val (Num ((get_num e1) * (get_num e2)))
-  | Equals -> Env.Val (Bool ((get_num e1) = (get_num e2)))
-  | LessThan -> Env.Val (Bool ((get_num e1) < (get_num e2))) ;;
+             : Env.value =
+  match b, e1, e2 with
+  | Plus, Num x1, Num x2 -> Env.Val (Num (x1 + x2))
+  | Fplus, Float x1, Float x2 -> Env.Val (Float (x1 +. x2))
+  | Minus, Num x1, Num x2 -> Env.Val (Num (x1 - x2))
+  | Fminus, Float x1, Float x2 -> Env.Val (Float (x1 -. x2))
+  | Times, Num x1, Num x2 -> Env.Val (Num (x1 * x2))
+  | Ftimes, Float x1, Float x2 -> Env.Val (Float (x1 *. x2))
+  | Equals, Num x1, Num x2 -> Env.Val (Bool (x1 = x2))
+  | Equals, Float x1, Float x2 -> Env.Val (Bool (x1 = x2))
+  | LessThan, Num x1, Num x2 -> Env.Val (Bool (x1 < x2))
+  | LessThan, Float x1, Float x2 -> Env.Val (Bool (x1 < x2))
+  | _ -> raise (EvalError "Type error, values of type Num or Float were expected") ;;
 
-let get_expr (Env.Val v : Env.value) : Expr.expr = v ;;
+let get_value (Env.Val v : Env.value) = v ;;
 
 (* The SUBSTITUTION MODEL evaluator -- to be completed *)
    
-let eval_s (exp : expr) (_env : Env.env) : Env.value =
-  let rec eval_s' (exp : expr) : Env.value =
-    match exp with
-    | Var v -> raise (EvalError ("Unbound value " ^ v))
-    | Num _ | Bool _ | Unassigned -> Env.Val exp
-    | Unop (u, e) -> eval_unop u (eval_s' e)
-    | Binop (b, e1, e2) -> eval_binop b (eval_s' e1) (eval_s' e2)
-    | Conditional (e1, e2, e3) -> 
-      if eval_s' e1 = Env.Val (Bool true) then eval_s' e2 else eval_s' e3
-    | Fun (x, e) -> Env.Val (Fun (x, e))
-    | Let (x, e1, e2) -> eval_s' (subst x (get_expr (eval_s' e1)) e2)
-    | Letrec (x, e1, e2) ->
-      eval_s' (subst x (subst x (Letrec (x, e1, Var x)) e1) e2) (* STACK OVERFLOW *)
-    | Raise -> raise EvalException
-    | App (e1, e2) ->
-      match eval_s' e1 with 
-      | Env.Val Fun (x, e) -> eval_s' (subst x (get_expr (eval_s' e2)) e)
-      | _ ->
-        raise (EvalError "Function expected, unable to perform application") in
-  eval_s' exp
-;; 
+let rec eval_s (exp : expr) (env : Env.env) : Env.value =
+  match exp with
+  | Var x -> raise (EvalError ("Unbound value " ^ x))
+  | Num _ | Float _ | Bool _ | Fun _ | Unassigned -> Env.Val exp
+  | Unop (u, e) -> eval_unop u (eval_s e env)
+  | Binop (b, e1, e2) -> eval_binop b (eval_s e1 env) (eval_s e2 env)
+  | Conditional (e1, e2, e3) ->
+    if eval_s e1 env = Env.Val (Bool true) then eval_s e2 env else eval_s e3 env
+  | Let (x, e1, e2) -> eval_s (subst x (get_value (eval_s e1 env)) e2) env
+  | Letrec (x, e1, e2) ->
+    eval_s (subst x (subst x (Letrec (x, e1, Var x)) e1) e2) env
+  | Raise -> raise EvalException
+  | App (e1, e2) ->
+    match eval_s e1 env with
+    | Env.Val Fun (x, e) -> eval_s (subst x (get_value (eval_s e2 env)) e) env
+    | _ ->
+      raise (EvalError "Function expected, unable to perform application")
+;;
      
 (* The DYNAMICALLY-SCOPED ENVIRONMENT MODEL evaluator -- to be
    completed *)
    
-let eval_d (_exp : expr) (_env : Env.env) : Env.value =
-  failwith "eval_d not implemented" ;;
+let rec eval_d (exp : expr) (env : Env.env) : Env.value =
+  match exp with
+  | Var x ->
+    (try
+      match Env.lookup env x with
+      | Env.Val e -> Env.Val e
+      | Env.Closure (e, env') -> eval_d e env'
+    with
+      Not_found -> raise (EvalError ("Unbound value " ^ x)))
+  | Num _ | Float _ | Bool _ | Unassigned -> Env.Val exp
+  | Unop (u, e) -> eval_unop u (eval_d e env)
+  | Binop (b, e1, e2) -> eval_binop b (eval_d e1 env) (eval_d e2 env)
+  | Conditional (e1, e2, e3) ->
+    if eval_d e1 env = Env.Val (Bool true) then eval_d e2 env else eval_d e3 env
+  | Fun _ -> Env.close exp (Env.empty ())
+  | Let (x, e1, e2) -> eval_d e2 (Env.extend env x (ref (eval_d e1 env)))
+  | Letrec (x, e1, e2) ->
+    let value = ref (Env.Val Unassigned) in
+    let new_env = Env.extend env x value in
+    value := Env.close (get_value (eval_d e1 new_env)) env;
+    eval_d e2 new_env
+  | Raise -> raise EvalException
+  | App (e1, e2) ->
+    match eval_d e1 env with
+    | Env.Closure (Fun (x, e), _) ->
+      eval_d e (Env.extend env x (ref (eval_d e2 env)))
+    | _ -> raise (EvalError "Function expected, unable to perform application")
+;;
        
 (* The LEXICALLY-SCOPED ENVIRONMENT MODEL evaluator -- optionally
    completed as (part of) your extension *)

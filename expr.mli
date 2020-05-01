@@ -8,13 +8,17 @@
 (* Unary operators *)
 type unop =
   | Negate
+  | Fnegate
 ;;
 
 (* Binary operators *)
 type binop =
   | Plus
+  | Fplus
   | Minus
+  | Fminus
   | Times
+  | Ftimes
   | Equals
   | LessThan
 ;;
@@ -26,6 +30,7 @@ type varid = string ;;
 type expr =
   | Var of varid                         (* variables *)
   | Num of int                           (* integers *)
+  | Float of float                       (* floats *)
   | Bool of bool                         (* booleans *)
   | Unop of unop * expr                  (* unary operators *)
   | Binop of binop * expr * expr         (* binary operators *)

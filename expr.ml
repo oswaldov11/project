@@ -9,12 +9,16 @@
 
 type unop =
   | Negate
+  | Fnegate
 ;;
     
 type binop =
   | Plus
+  | Fplus
   | Minus
+  | Fminus
   | Times
+  | Ftimes
   | Equals
   | LessThan
 ;;
@@ -24,6 +28,7 @@ type varid = string ;;
 type expr =
   | Var of varid                         (* variables *)
   | Num of int                           (* integers *)
+  | Float of float                       (* floats *)
   | Bool of bool                         (* booleans *)
   | Unop of unop * expr                  (* unary operators *)
   | Binop of binop * expr * expr         (* binary operators *)
@@ -66,7 +71,7 @@ let vars_of_list : string list -> varidset =
 let rec free_vars (exp : expr) : varidset =
   match exp with
   | Var x -> SS.singleton x
-  | Num _ | Bool _ | Raise | Unassigned -> SS.empty
+  | Num _ | Float _ | Bool _ | Raise | Unassigned -> SS.empty
   | Unop (_, e) -> free_vars e
   | Binop (_, e1, e2) -> SS.union (free_vars e1) (free_vars e2)
   | Conditional (e1, e2, e3) ->
@@ -100,36 +105,39 @@ let new_varname : unit -> varid =
 (* subst : varid -> expr -> expr -> expr
    Substitute repl for free occurrences of var_name in exp *)
 let rec subst (var_name : varid) (repl : expr) (exp : expr) : expr =
-  let rec subst' (exp : expr) =
-    match exp with
-    | Var x -> if x = var_name then repl else exp
-    | Num _ | Bool _ | Raise | Unassigned -> exp
-    | Unop (u, e) -> Unop (u, subst' e)
-    | Binop (b, e1, e2) -> Binop (b, subst' e1, subst' e2)
-    | Conditional (e1, e2, e3) -> Conditional (subst' e1, subst' e2, subst' e3)
-    | Fun (x, e) ->
-      if x = var_name then exp
-      else 
-        if SS.mem x (free_vars repl) then
-          let x' = new_varname () in
-          Fun (x', subst' (subst x (Var x') e))
-        else Fun(x, subst' e)
-    | Let (x, e1, e2) ->
-      if x = var_name then Let (x, subst' e1, e2)
-      else
-        if SS.mem x (free_vars repl) then
-          let x' = new_varname () in
-          Let (x', subst' e1, subst' (subst x (Var x') e2))
-        else Let (x, subst' e1, subst' e2)
-    | Letrec (x, e1, e2) ->
-      if x = var_name then exp
-      else
-        if SS.mem x (free_vars repl) then
-          let x' = new_varname () in
-          Letrec (x', subst' (subst x (Var x') e1), subst' (subst x (Var x') e2))
-        else Letrec (x, subst' e1, subst' e2)
-    | App (e1, e2) -> App (subst' e1, subst' e2) in
-  subst' exp
+  match exp with
+  | Var x -> if x = var_name then repl else exp
+  | Num _ | Float _ | Bool _ | Raise | Unassigned -> exp
+  | Unop (u, e) -> Unop (u, subst var_name repl e)
+  | Binop (b, e1, e2) ->
+    Binop (b, subst var_name repl e1, subst var_name repl e2)
+  | Conditional (e1, e2, e3) ->
+    Conditional (subst var_name repl e1,
+                 subst var_name repl e2, subst var_name repl e3)
+  | Fun (x, e) ->
+    if x = var_name then exp
+    else 
+      if SS.mem x (free_vars repl) then
+        let x' = new_varname () in
+        Fun (x', subst var_name repl (subst x (Var x') e))
+      else Fun(x, subst var_name repl e)
+  | Let (x, e1, e2) ->
+    if x = var_name then Let (x, subst var_name repl e1, e2)
+    else
+      if SS.mem x (free_vars repl) then
+        let x' = new_varname () in
+        Let (x', subst var_name repl e1,
+             subst var_name repl (subst x (Var (x')) e2))
+      else Let (x, subst var_name repl e1, subst var_name repl e2)
+  | Letrec (x, e1, e2) ->
+    if x = var_name then exp
+    else
+      if SS.mem x (free_vars repl) then
+        let x' = new_varname () in
+        Letrec (x', subst var_name repl (subst x (Var x') e1),
+                subst var_name repl (subst x (Var x') e2))
+      else Letrec (x, subst var_name repl e1, subst var_name repl e2)
+  | App (e1, e2) -> App (subst var_name repl e1, subst var_name repl e2)
 ;;
 
 (*......................................................................
@@ -138,13 +146,17 @@ let rec subst (var_name : varid) (repl : expr) (exp : expr) : expr =
    
 let string_of_unop (u : unop) : string =
   match u with
-  | Negate -> "Negate" ;;
+  | Negate -> "Negate"
+  | Fnegate -> "Fnegate" ;;
 
 let string_of_binop (b : binop) : string =
   match b with
   | Plus -> "Plus"
+  | Fplus -> "Fplus"
   | Minus -> "Minus"
+  | Fminus -> "Fminus"
   | Times -> "Times"
+  | Ftimes -> "Ftimes"
   | Equals -> "Equals"
   | LessThan -> "LessThan" ;;
     
@@ -154,6 +166,7 @@ let rec exp_to_concrete_string (exp : expr) : string =
   match exp with
   | Var x -> x
   | Num x -> string_of_int x
+  | Float x -> string_of_float x
   | Bool x -> string_of_bool x
   | Unop (u, e) -> string_of_unop u ^ exp_to_concrete_string e
   | Binop (b, e1, e2) ->
@@ -180,6 +193,7 @@ let rec exp_to_abstract_string (exp : expr) : string =
   match exp with
   | Var x -> "Var(" ^ x ^ ")"
   | Num x -> "Num(" ^ string_of_int x ^ ")"
+  | Float x -> "Float(" ^ string_of_float x ^ ")"
   | Bool x -> "Bool(" ^ string_of_bool x ^ ")"
   | Unop (u, e) -> 
     "Unop(" ^ string_of_unop u ^ ", "  ^ exp_to_abstract_string e ^ ")"
