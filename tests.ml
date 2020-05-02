@@ -33,16 +33,14 @@ let rec test_abs_strs (exprs : string list) (abs_strs : string list) : unit =
 (* Test free_vars *)
 
 let free_vars_exprs =
-  [ "fun y -> f (x + y) ;;";
+  [ "let x = fun y -> x in x ;;";
     "let x = 51 in let y = x in f x y ;;";
-    "let x = fun y -> x in x ;;";
-    "fun x -> 3 * (f y) + x ;;"] ;;
+    "fun y -> f (x + y) ;;" ] ;;
 
 let free =
-  [ ["f"; "x"];
+  [ ["x"];
     ["f"];
-    ["x"];
-    ["f"; "y"] ] ;;
+    ["f"; "x"]; ] ;;
 
 let rec test_free_vars (fvexprs : string list) (free : string list list) : unit =
   match fvexprs, free with
