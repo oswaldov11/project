@@ -75,8 +75,8 @@ let rec free_vars (exp : expr) : varidset =
   | Unop (_, e) -> free_vars e
   | Binop (_, e1, e2) -> SS.union (free_vars e1) (free_vars e2)
   | Conditional (e1, e2, e3) ->
-    SS. union (SS.union (free_vars e1) (free_vars e2)) (free_vars e3)
-  | Fun (x, e) -> SS.remove x (free_vars exp)
+    SS.union (SS.union (free_vars e1) (free_vars e2)) (free_vars e3)
+  | Fun (x, e) -> SS.remove x (free_vars e)
   | Let (x, e1, e2) -> SS.union (free_vars e1) (SS.remove x (free_vars e2))
   | Letrec (x, e1, e2) ->
     SS.union (SS.remove x (free_vars e1)) (SS.remove x (free_vars e2))
@@ -120,7 +120,7 @@ let rec subst (var_name : varid) (repl : expr) (exp : expr) : expr =
       if SS.mem x (free_vars repl) then
         let x' = new_varname () in
         Fun (x', subst var_name repl (subst x (Var x') e))
-      else Fun(x, subst var_name repl e)
+      else Fun (x, subst var_name repl e)
   | Let (x, e1, e2) ->
     if x = var_name then Let (x, subst var_name repl e1, e2)
     else
@@ -209,7 +209,7 @@ let rec exp_to_abstract_string (exp : expr) : string =
     ^ exp_to_abstract_string e2 ^ ")"
   | Letrec (x, e1, e2) ->
     "Letrec(" ^ x ^ ", " ^ exp_to_abstract_string e1 ^ ", "
-    ^ exp_to_abstract_string e2 ^ ")" 
+    ^ exp_to_abstract_string e2 ^ ")"
   | Raise -> "Raise"
   | Unassigned -> "Unassigned"
   | App (e1, e2) ->

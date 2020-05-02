@@ -150,7 +150,9 @@ let eval_binop (b : binop)
   | LessThan, Float x1, Float x2 -> Env.Val (Bool (x1 < x2))
   | _ -> raise (EvalError "Type error, values of type Num or Float were expected") ;;
 
-let get_value (Env.Val v : Env.value) = v ;;
+let get_expr (value : Env.value) : Expr.expr =
+  match value with
+  | Val e | Closure (e, _) -> e ;;
 
 (* The SUBSTITUTION MODEL evaluator -- to be completed *)
    
@@ -162,13 +164,13 @@ let rec eval_s (exp : expr) (env : Env.env) : Env.value =
   | Binop (b, e1, e2) -> eval_binop b (eval_s e1 env) (eval_s e2 env)
   | Conditional (e1, e2, e3) ->
     if eval_s e1 env = Env.Val (Bool true) then eval_s e2 env else eval_s e3 env
-  | Let (x, e1, e2) -> eval_s (subst x (get_value (eval_s e1 env)) e2) env
+  | Let (x, e1, e2) -> eval_s (subst x (get_expr (eval_s e1 env)) e2) env
   | Letrec (x, e1, e2) ->
     eval_s (subst x (subst x (Letrec (x, e1, Var x)) e1) e2) env
   | Raise -> raise EvalException
   | App (e1, e2) ->
     match eval_s e1 env with
-    | Env.Val Fun (x, e) -> eval_s (subst x (get_value (eval_s e2 env)) e) env
+    | Env.Val Fun (x, e) -> eval_s (subst x (get_expr (eval_s e2 env)) e) env
     | _ ->
       raise (EvalError "Function expected, unable to perform application")
 ;;
@@ -195,7 +197,7 @@ let rec eval_d (exp : expr) (env : Env.env) : Env.value =
   | Letrec (x, e1, e2) ->
     let value = ref (Env.Val Unassigned) in
     let new_env = Env.extend env x value in
-    value := Env.close (get_value (eval_d e1 new_env)) env;
+    value := Env.close (get_expr (eval_d e1 new_env)) env;
     eval_d e2 new_env
   | Raise -> raise EvalException
   | App (e1, e2) ->
